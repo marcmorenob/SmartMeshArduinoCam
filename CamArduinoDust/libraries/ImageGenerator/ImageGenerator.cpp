@@ -16,8 +16,18 @@ Adafruit_VC0706 cam=Adafruit_VC0706();
 ImageGenerator::ImageGenerator() 
 {
     
+  imageSize = 0;
+  
+  //Flag for capture one picture
+  isData2Send=false;
+  
+  //Flag for auto mode
+  isAutoMode=false;
 }
 
+/**
+\brief Setup function to configure and start the camera
+*/
 void ImageGenerator::setup()
 {  
   Serial.begin(115200);
@@ -57,16 +67,19 @@ void ImageGenerator::setup()
   if (imgsize == VC0706_320x240) Serial.println("320x240");
   if (imgsize == VC0706_160x120) Serial.println("160x120");
 
-  cam.setCompression(100);
+  cam.setCompression(COMPRESSION_RATE);
 
   uint8_t c = cam.getCompression();
   Serial.print("Compression: ");
   Serial.println(c,DEC);
-
-  imageSize = 0;
+   
   Serial.end();
+  
 }
 
+/**
+\brief Dummy fonction for setup
+*/
 void ImageGenerator::setupDummy()
 {
   Serial.begin(115200);
@@ -75,7 +88,19 @@ void ImageGenerator::setupDummy()
   Serial.end();
 }
 
-void ImageGenerator::newPictureMsg(
+/* Message to sync py App between arduino. NewPicture send a 
+ * specific message to py App. That message has the images size and
+ * a human message. All data is less thant the maxim user data 
+ * abailable. So, only 1 message is needed to sync both
+ * applications.
+ * 
+ * @param prt         Pointer to the smartMesh message payload
+ * @param maxLen      Maximum user data
+ * @param lenWritten  Data wrote in the use data payload zone
+ * @param fDataPeriod Time between consecutive smartMesh message.
+ * 
+ */
+void ImageGenerator::newPicture(
       uint8_t* ptr,
       uint8_t  maxLen,
       uint8_t* lenWritten,
@@ -86,12 +111,15 @@ void ImageGenerator::newPictureMsg(
   char msg[]="New picture";
   Serial.println(msg);
   memcpy(ptr,msg,sizeof(msg));
+  memcpy(ptr+sizeof(msg),&imageSize,sizeof(imageSize));
   *lenWritten=sizeof(msg);
-  *fDataPeriod = 100;  
+  *fDataPeriod = SEND_TIME_BETWEEN_MSGS;  
   
 }
 
-//Take picture and read image from camera buffer
+/**
+\brief Take picture, read and store that imag in-memory
+*/
 void ImageGenerator::takePicture()
 {
     //Take a picture
@@ -104,18 +132,23 @@ void ImageGenerator::takePicture()
     Serial.print("Image read");
 }
 
-//Take picture and read image from camera buffer
+/**
+\brief Take picture and read image from camera buffer
+*/
 void ImageGenerator::takePictureDummy()
 {
     //Load image from TestImage.h
     imageSize=sizeof(TESTIMG);
     memcpy(imageData,TESTIMG,imageSize);
     delay(200);
+    
     //First position to read values
     ptrImageData = imageData;
 }
 
-//Read image from camera buffer
+/**
+\brief Read image from camera buffer and store it in CamBuffer
+*/
 void ImageGenerator::readPicture(){
 
     uint16_t data2read;
@@ -167,16 +200,96 @@ void ImageGenerator::nextValue(
         memcpy(ptr,ptrImageData,imageSize);
         *lenWritten = imageSize;
         imageSize = 0;
+        //Just in case isData2Send is true. Only take 1 picture
+        isData2Send=false;
     }
     
-    *fDataPeriod = READ_IMG_DELAY;
+    *fDataPeriod = SEND_TIME_BETWEEN_MSGS;
 }
 
-uint8_t ImageGenerator::isPictureRead()
+/*
+* Check if there are data to be read or a new picture can be capatured 
+* 
+*/
+uint8_t ImageGenerator::isDataAvailable()
 {
     if(imageSize>0){
-        return 0;
+        return 1;
     }
-    return 1;
+    return 0;
 }
+
+
+/* Read new data from buffer or take a new picture if no data 
+ * available
+ * 
+ * @param prt         Pointer to the smartMesh message payload
+ * @param maxLen      Maximum user data
+ * @param lenWritten  Data wrote in the use data payload zone
+ * @param fDataPeriod Time between consecutive smartMesh message.
+ * 
+ */
+void ImageGenerator::dataGenerator(uint8_t* ptr, uint8_t  maxLen, uint8_t* lenWritten,unsigned long* fDataPeriod){
+
+   if(!camStatus){
+      *lenWritten = 0;
+      *fDataPeriod = POLL_TIME;
+   }
+   
+   if(!isData2Send && !isAutoMode){ //Nothing to do
+            *lenWritten=0;
+            *fDataPeriod = POLL_TIME; //Poll every second
+            return;
+   }
+   
+   if(isDataAvailable()){
+        Serial.println("NextValue");
+        nextValue(ptr,maxLen,lenWritten,fDataPeriod);
+   }else{
+        Serial.print("New Picture.");
+        #ifdef DUMMY
+            takePictureDummy();
+        #else
+            takePicture();
+        #endif
+        newPicture(ptr,maxLen,lenWritten,fDataPeriod);
+   }
+
+}
+ 
+ 
+/* Receive data call back. This function process all messages received
+*
+* @param prt      Pointer to the smartMesh message received payload
+* @param lenRead  Data to be read
+* 
+*/   
+
+void ImageGenerator::dataProcessor(uint8_t* ptr, uint8_t  lenRead){
+
+      uint8_t cmd;
+      
+      cmd = *ptr;
+      
+      switch(cmd){
+        case 0xC1: //Capture 1 (C1)
+            Serial.println("Capture Images");
+            isData2Send=true;
+            break;
+        case 0xCA: //Capture Automatic (CA)
+            Serial.println("Start automatic");
+            isAutoMode=true;
+            break;
+        case 0xC0:  //Capture 0 (C0)
+            Serial.println("Stop automatic");
+            isAutoMode = false;
+            break;      
+        default:
+            Serial.print("Unknown command: ");
+            Serial.println(cmd,HEX);
+            break;      
+      }
+}
+
+
 //########################### private #########################################
