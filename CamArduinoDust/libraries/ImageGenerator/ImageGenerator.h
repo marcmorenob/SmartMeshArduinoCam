@@ -13,7 +13,14 @@
 //=========================== defines =========================================
 #define MAX_RAW_LEN 64
 
-#define READ_IMG_DELAY 100000 //ms
+#define SEND_TIME_BETWEEN_MSGS 100 //ms
+
+#define POLL_TIME 1000 //ms
+
+#define COMPRESSION_RATE 100
+
+//#define DUMMY
+
 //Image type
 #define SMALLI
 
@@ -45,13 +52,15 @@ class ImageGenerator {
       ImageGenerator();
       void         setup();
       void         setupDummy();
-      void         nextValue(uint8_t* ptr, uint8_t  maxLen, uint8_t* lenWritten,unsigned long* fDataPeriod);
-      void         newPictureMsg(uint8_t* ptr, uint8_t  maxLen, uint8_t* lenWritten,unsigned long* fDataPeriod);
-      void         takePicture();
-      void         takePictureDummy();
-      uint8_t      isPictureRead();
+      void         dataGenerator(uint8_t* ptr, uint8_t  maxLen, uint8_t* lenWritten,unsigned long* fDataPeriod);
+      void         dataProcessor(uint8_t* ptr, uint8_t  lenRead);
 
    private:
+      void         nextValue(uint8_t* ptr, uint8_t  maxLen, uint8_t* lenWritten,unsigned long* fDataPeriod);
+      void         newPicture(uint8_t* ptr, uint8_t  maxLen, uint8_t* lenWritten,unsigned long* fDataPeriod);
+      void         takePicture();
+      void         takePictureDummy();
+      uint8_t      isDataAvailable();
       void         readPicture();
       uint8_t       camStatus;
       
@@ -59,6 +68,10 @@ class ImageGenerator {
       uint16_t      imageSize;
       uint8_t       *ptrImageData;
       uint8_t       imageData[IM_BUFFER_SIZE];
+      
+      //App parameters
+      boolean           isData2Send;             // When capture data is received
+      boolean           isAutoMode;              // When auto send images is received
 };
 
 
