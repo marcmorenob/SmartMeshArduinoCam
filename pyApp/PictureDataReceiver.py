@@ -9,6 +9,7 @@ temp_path = "C:\mmoreno\SmartMeshSDK-full-1.0.3.73\SmartMeshSDK-1.0.3.73\src\Sma
 if temp_path:
     sys.path.insert(0, os.path.join(temp_path, 'dustUI'))
     sys.path.insert(0, os.path.join(temp_path, 'SmartMeshSDK'))
+    sys.path.insert(0, os.path.join('GUI'))
 
 # verify installation
 import SmsdkInstallVerifier
@@ -40,9 +41,13 @@ from dustFrameText  import dustFrameText
 
 #DUST API
 from ApiDefinition  import IpMgrDefinition
+from ApiException            import APIError
 
 from IpMgrConnectorMux  import IpMgrConnectorMux
 from IpMgrConnectorMux  import IpMgrSubscribe
+
+from IpMgrConnectorSerial  import IpMgrConnectorSerial
+from IpMgrConnectorSerial import IpMgrConnectorSerialInternal
 
 from optparse import OptionParser
 
@@ -50,6 +55,8 @@ UPDATEPERIOD = 250 # in ms
 DEFAULT_HOST = '127.0.0.3'
 DEFAULT_PORT = 9900
 DEFAULT_SPORT = 'COM26'
+
+ARDUINO_COMMANDS = {'Capture':[0xc1],'StartAuto':[0xCA],'StopAuto':[0xC0]}
 
 STADISTICS_MSG = "Downloaded files # {0} \nLast image info:\n\tRx pkts# {1} \n\tRx data # {2} \n\tDownload time: {3} ms"
 class notifClient(object):
@@ -124,7 +131,38 @@ class notifClient(object):
     #======================== private =========================================
     def _showDataCB(self,imgJpg,textS):
             print "Show Data"
-               
+
+    def _dataProcessor(self,notifParams):
+        
+        if len(self.currentImg)>0:
+
+            timeR = [notifParams.utcSecs,notifParams.utcUsecs]
+             
+            if self.timeS != [0,0]:
+                diffSec = (timeR[0] - self.timeS[0])*1000
+                diffUSec = (timeR[1] - self.timeS[1])/1000
+                downloadTime = diffSec-diffUSec
+            else:
+                downloadTime = 0
+            
+            self.numDownloadedFiles = self.numDownloadedFiles + 1    
+            
+            textS = STADISTICS_MSG.format(self.numDownloadedFiles,
+                                          self.numPkts,
+                                          len(self.currentImg),
+                                          downloadTime)
+                                                
+            self._showDataCB(self.currentImg,textS)
+
+            self.lastImg = self.currentImg
+            self.currentImg = ""
+            self.numPkts = 0
+        
+        self.numPkts = self.numPkts + 1
+        
+        self.timeS = [notifParams.utcSecs,notifParams.utcUsecs]
+            
+                           
     def _notifDataCallback(self,notifName,notifParams):
         
         self.dataLock.acquire()
@@ -139,37 +177,13 @@ class notifClient(object):
         sData = "".join(map(chr,notifParams.data))
 
         if sData.find("picture")>=0:
-            if len(self.currentImg)>0:
-
-                timeR = [notifParams.utcSecs,notifParams.utcUsecs]
-                 
-                if self.timeS != [0,0]:
-                    diffSec = (timeR[0] - self.timeS[0])*1000
-                    diffUSec = (timeR[1] - self.timeS[1])/1000
-                    downloadTime = diffSec-diffUSec
-                else:
-                    downloadTime = 0
-                
-                self.numDownloadedFiles = self.numDownloadedFiles + 1    
-                
-                textS = STADISTICS_MSG.format(self.numDownloadedFiles,
-                                              self.numPkts,
-                                              len(self.currentImg),
-                                              downloadTime)
-                                                    
-                self._showDataCB(self.currentImg,textS)
-
-                self.lastImg = self.currentImg
-                self.currentImg = ""
-                self.numPkts = 0
-            
-            self.numPkts = self.numPkts + 1
-            
-            self.timeS = [notifParams.utcSecs,notifParams.utcUsecs]
+            self._dataProcessor(notifParams)
         else:
             self.currentImg = self.currentImg + sData
             print "Data size: "+str(len(sData))+" jpgContentSize:"+str(len(self.currentImg))
             self.numPkts = self.numPkts + 1
+            if len(sData)<71:
+                self._dataProcessor(notifParams)
            
 class dataGui(object):
     '''
@@ -217,7 +231,9 @@ class dataGui(object):
                                 row=1,column=0)
         self.textFrame.show()
         self.textFrame.write(STADISTICS_MSG.format(0,0,0,0))
-    
+        
+        self.sensorDataFrame.captureButton.configure(state=Tkinter.DISABLED)
+        self.sensorDataFrame.startStopAutoButton.configure(state=Tkinter.DISABLED)
     #======================== public ==========================================
     
     def start(self, connect_params):
@@ -229,26 +245,68 @@ class dataGui(object):
             sys.exit()
 
     #======================== private =========================================
+    def _getOperationalMotesMacAddresses(self):
+        returnVal = []
+           
+        currentMac     = (0,0,0,0,0,0,0,0) # start getMoteConfig() iteration with the 0 MAC address
+        continueAsking = True
+        while continueAsking:
+            try:
+                res = self.connector.dn_getMoteConfig(currentMac,True)
+            except APIError:
+                continueAsking = False
+            else:
+                if ((not res.isAP) and (res.state in [4,])):
+                    returnVal.append(tuple(res.macAddress))
+                currentMac = res.macAddress
+        # order by increasing MAC address
+        returnVal.sort()    
+        
+        return returnVal
+        
+    def  _sendCmdArduino(self,cmdArduino):
+        macList = self._getOperationalMotesMacAddresses()
+        mac= macList[0]
+        priority =  2
+        srcPort =  61000
+        dstPort = 60000
+        options = 0
+
+        try:
+            self.connector.dn_sendData( mac,
+                                    priority,
+                                    srcPort,
+                                    dstPort,
+                                    options,
+                                    cmdArduino)
+        except APIError as e:
+            print "Exception -> {0}".format(e)
+        
+        
     def _captureButton(self):
-            self.guiLock.acquire()
-            print "Capture img from PictureDataReceiver"
-            self.guiLock.release()
+        self.guiLock.acquire()
+        self._sendCmdArduino(ARDUINO_COMMANDS['Capture'])
+        self.guiLock.release()
 
     def _automaticCaptureButton(self):
         if self.isAutomatic:
             self.guiLock.acquire()
+            self._sendCmdArduino(ARDUINO_COMMANDS['StopAuto'])
             print "Stop automatic capturing ..."
             self.sensorDataFrame.startStopAutoButton.configure(text='Start Auto')
             self.isAutomatic = False
             self.guiLock.release()    
+            
         else:
             self.guiLock.acquire()
+            self._sendCmdArduino(ARDUINO_COMMANDS['StartAuto'])
             print "Start automatic capturing ..."
             self.isAutomatic = True
             self.sensorDataFrame.startStopAutoButton.configure(text='Stop Auto')
             self.guiLock.release()
 
     def _saveButton(self):
+        if self.notifClientHandler:
             self.notifClientHandler.saveImg()
                         
     def _windowCb_close(self):
@@ -270,6 +328,9 @@ class dataGui(object):
                     self._showData
                 )
         
+        self.sensorDataFrame.captureButton.configure(state=Tkinter.NORMAL)
+        self.sensorDataFrame.startStopAutoButton.configure(state=Tkinter.NORMAL)
+        
     def _connectionFrameCb_disconnected(self,notifName,notifParams):
         '''
         \brief Called when the connectionFrame has disconnected.
@@ -282,18 +343,9 @@ class dataGui(object):
         self.connector = None
         
         self.notifClientHandler.resetData()
-    def _connectionFrameCb_disconnected(self,notifName,notifParams):
-        '''
-        \brief Called when the connectionFrame has disconnected.
-        '''
         
-        # update the GUI
-        self.connectionFrame.updateGuiDisconnected()
-        
-        # delete the connector
-        self.connector = None
-        
-        self.notifClientHandler.resetData()
+        self.sensorDataFrame.captureButton.configure(state=Tkinter.DISABLED)
+        self.sensorDataFrame.startStopAutoButton.configure(state=Tkinter.DISABLED)
 
     def _showData(self,imgJpg,textS):
         '''
