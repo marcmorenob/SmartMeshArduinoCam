@@ -28,9 +28,9 @@ class dustFrameImage(dustFrame.dustFrame):
         # init parent
         dustFrame.dustFrame.__init__(self,parentElem,guiLock,frameName,row,column)   
 
-        self.startStopButton = dustGuiLib.Button(self.container,
+        self.captureButton = dustGuiLib.Button(self.container,
                                              text='Capture',
-                                             command=self.startCaptureBPCB)
+                                               command=self.startCaptureBPCB)
         
         self.startStopAutoButton = dustGuiLib.Button(self.container,
                                              text='Start Auto',
@@ -39,9 +39,10 @@ class dustFrameImage(dustFrame.dustFrame):
         self.saveButton = dustGuiLib.Button(self.container,
                                              text='Save image',
                                              command=self.saveBPCB)
-        self._add(self.startStopButton,0,0)
-        self._add(self.startStopAutoButton,1,1)
-        self._add(self.saveButton,1,2)
+        self._add(self.saveButton,0,0)
+        self._add(self.captureButton,1,1)
+        self._add(self.startStopAutoButton,1,2)
+        
         self.isAutomatic = False
         
         # row 1: canvas
@@ -50,7 +51,7 @@ class dustFrameImage(dustFrame.dustFrame):
                                         height=240)
 
         #Simulate In-memory
-        f = open("C:/mmoreno/pyApp/arduinoDustlogo.jpg","rb")
+        f = open("geek_inside.jpg","rb")
         jpgdata = f.read()
         f.close()
 
