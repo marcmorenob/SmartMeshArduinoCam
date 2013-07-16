@@ -1,3 +1,4 @@
+
 /*
 Copyright (c) 2013, Dust Networks.  All rights reserved.
 
@@ -15,35 +16,18 @@ the SmartMesh SDK to see that data arrive.
 #include <SPI.h>
 #include <time.h>
 
-//#define DUMMY
-
 ImageGenerator    generator;
 SmartMesh         smartmesh;
-
-uint32_t timeA;
 
 //=========================== data generator ==================================
 
 void generateData(uint8_t* ptr, uint8_t maxLen, uint8_t* lenWritten,TIME_T* fDataPeriod) {
-   if(generator.isPictureRead()){
-        uint32_t timeC = millis();
-        Serial.print("New Picture. Last spend: ");
-        Serial.print(timeC-timeA,DEC);
-        Serial.println("ms");
-        #ifdef DUMMY
-            generator.takePictureDummy();
-        #else
-            generator.takePicture();
-        #endif
-        timeA = millis();
-        generator.newPictureMsg(ptr,maxLen,lenWritten,fDataPeriod);
-        
-   }else{
-        Serial.println("NextValue");
-        generator.nextValue(ptr,maxLen,lenWritten,fDataPeriod);
-   }
+   generator.dataGenerator(ptr,maxLen,lenWritten,fDataPeriod);
 }
 
+void processData(uint8_t* ptr, uint8_t lenRead) {
+   generator.dataProcessor(ptr,lenRead);
+}
 //=========================== "main" ==========================================
 
 void setup() {
@@ -57,9 +41,10 @@ void setup() {
       60000,                           // srcPort_param
       (uint8_t*)ipv6Addr_manager,      // destAddr_param
       61000,                           // destPort_param
-      100,                              // dataPeriod_param
-      generateData                     // dataGenerator_param
-   );
+      1000,                            // dataPeriod_param
+      generateData,                    // dataGenerator_param
+      processData                      // dataProcessor_param
+      );
 }
 
 void loop() {
