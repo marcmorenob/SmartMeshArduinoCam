@@ -95,6 +95,7 @@ static const uint16_t hdlc_fcstab[256] = {
 #define SERIAL_CMDID_OPENSOCKET        0x15
 #define SERIAL_CMDID_BINDSOCKET        0x17
 #define SERIAL_CMDID_SENDTO            0x18
+#define SERIAL_CMDID_RECEIVEFROM       0x19
 
 // parameter IDs
 #define SERIAL_PARAMID_MOTESTATUS 0x0E
@@ -140,6 +141,7 @@ class SmartMesh; // forward declaration needed here
 typedef void (SmartMesh::*fsm_timer_callback)(void);
 typedef void (SmartMesh::*fsm_reply_callback)(uint8_t cmdId, uint8_t* payload, uint8_t length);
 typedef void (*data_generator)(uint8_t* ptr, uint8_t maxLen, uint8_t* lenWritten,TIME_T* fDataPeriod);
+typedef void (*data_processor)(uint8_t* ptr, uint8_t lenRead);
 
 //=========================== variables =======================================
 
@@ -190,7 +192,8 @@ class SmartMesh {
          uint8_t*       destAddr_param,
          uint16_t       destPort_param,
          TIME_T         dataPeriod_param,
-         data_generator dataGenerator_param
+         data_generator dataGenerator_param,
+         data_processor dataProcessor_param
       );
       void              loop();
       //===== attributes
@@ -242,6 +245,7 @@ class SmartMesh {
       uint16_t          destPort;                // UDP destination port
       TIME_T            dataPeriod;              // number of ms between transmissions
       data_generator    dataGenerator;           // data generating function
+      data_processor    dataProcessor;           // data processor function
       hdlc_vars_t       hdlc_vars;               // HDLC-specific variables
       serial_vars_t     serial_vars;             // serial-specific variables
       fsm_vars_t        fsm_vars;                // fsm-specific variables

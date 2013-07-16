@@ -54,7 +54,8 @@ void SmartMesh::setup(
       uint8_t*       destAddr_param,
       uint16_t       destPort_param,
       TIME_T         dataPeriod_param,
-      data_generator dataGenerator_param
+      data_generator dataGenerator_param,
+      data_processor dataProcessor_param
    ) {
    // reset local variables
    memset(&hdlc_vars,   0, sizeof(hdlc_vars));
@@ -69,6 +70,7 @@ void SmartMesh::setup(
    destPort             = destPort_param;
    dataPeriod           = dataPeriod_param;
    dataGenerator        = dataGenerator_param;
+   dataProcessor        = dataProcessor_param;
    
    // initialize the serial port connected to the computer
    //Serial.begin(BAUDRATE_CLI);
@@ -95,7 +97,7 @@ void SmartMesh::setup(
    SerialDebugPrint(VERSION_BUILD);
    SerialDebugPrintln(F(" (c) Dust Networks, 2013."));
    SerialDebugPrintln("");
-   
+        
    // schedule first event
    fsm_scheduleIn(2*CMD_PERIOD, &SmartMesh::fsm_getMoteStatus);
 }
@@ -415,9 +417,16 @@ void SmartMesh::serial_receiver() {
 
 void SmartMesh::serial_dispatch_request(uint8_t cmdId, uint8_t* payload, uint8_t length) {
    
+   uint8_t *userData = &payload[19];
+   
    switch (cmdId) {
       case SERIAL_CMDID_EVENT:
          serial_rx_event(payload,length);
+         break;
+      case SERIAL_CMDID_RECEIVEFROM:
+         Serial.println("Cmd received len:");
+         Serial.println(length);
+         dataProcessor(userData,(length-19));
          break;
       default:
          // log
@@ -705,35 +714,37 @@ void SmartMesh::fsm_sendTo(void) {
    uint8_t lenWritten;
    TIME_T fDataPeriod;
    
-   fDataPeriod =  dataPeriod;  
-   // prepare payload
-   payload[0]  = socketId;                       // socketId
-   memcpy(&payload[1],destAddr,IPv6ADDR_LEN);    // destIP
-   write16b(&payload[17],destPort);              // destPort
-   payload[19] = 0x00;                           // serviceType
-   
-   payload[20] = 0x00;                           // priority (Low priority)
-   //payload[20] = 0x02;                           // priority (High priority)
-   
-   payload[21] = 0xff;                           // packetId
-   payload[22] = 0xff;
+    fDataPeriod =  dataPeriod;  
 
-#ifdef DEBUG
-   SerialDebugPrintln(F("INFO:     fsm sendTo"));  
-   SerialDebugPrintln(F("Call data generator"));
-#endif
-   
-   
-   dataGenerator(&payload[23],MAX_PAYLOAD_LENGTH,&lenWritten,&fDataPeriod);
+    dataGenerator(&payload[23],MAX_PAYLOAD_LENGTH,&lenWritten,&fDataPeriod);
+
+    if(lenWritten>0){
+       // prepare payload
+       payload[0]  = socketId;                       // socketId
+       memcpy(&payload[1],destAddr,IPv6ADDR_LEN);    // destIP
+       write16b(&payload[17],destPort);              // destPort
+       payload[19] = 0x00;                           // serviceType
+       
+       payload[20] = 0x00;                           // priority (Low priority)
+       //payload[20] = 0x02;                           // priority (High priority)
+       
+       payload[21] = 0xff;                           // packetId
+       payload[22] = 0xff;
+
+    #ifdef DEBUG
+       SerialDebugPrintln(F("INFO:     fsm sendTo"));  
+       SerialDebugPrintln(F("Call data generator"));
+    #endif
+            
+        // send request
+        serial_sendRequest(
+          SERIAL_CMDID_SENDTO,                       // cmdId
+          payload,                                   // payload
+          SENDTO_HEADER_LENGTH+lenWritten            // length
+        );
         
-    // send request
-    serial_sendRequest(
-      SERIAL_CMDID_SENDTO,                       // cmdId
-      payload,                                   // payload
-      SENDTO_HEADER_LENGTH+lenWritten            // length
-    );
-    
-    SerialDebugPrintln(F("finished call"));   
+        SerialDebugPrintln(F("finished call"));   
+    }
     // schedule next transmission
     fsm_vars.previousEvent = millis();
     fsm_scheduleIn(fDataPeriod, &SmartMesh::fsm_sendTo);
